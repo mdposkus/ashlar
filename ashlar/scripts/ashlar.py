@@ -4,6 +4,7 @@ import re
 import argparse
 import pathlib
 import blessed
+import concurrent.futures
 from .. import __version__ as VERSION
 from .. import reg
 from ..reg import PlateReader, BioformatsReader
@@ -268,20 +269,21 @@ def process_single(
         mosaic_args_final['dfp_path'] = dfp_paths[0]
     mosaics.append(reg.Mosaic(edge_aligner, mshape, **mosaic_args_final))
 
-    for cycle, filepath in enumerate(filepaths[1:], 1):
-        if not quiet:
-            print('Cycle %d:' % cycle)
-            print('    reading %s' % filepath)
-        reader = build_reader(filepath, barrel_correction, plate_well=plate_well)
-        process_axis_flip(reader, flip_x, flip_y)
-        layer_aligner = reg.LayerAligner(reader, edge_aligner, **aligner_args)
-        layer_aligner.run()
-        mosaic_args_final = mosaic_args.copy()
-        if ffp_paths:
-            mosaic_args_final['ffp_path'] = ffp_paths[cycle]
-        if dfp_paths:
-            mosaic_args_final['dfp_path'] = dfp_paths[cycle]
-        mosaics.append(reg.Mosaic(layer_aligner, mshape, **mosaic_args_final))
+
+    # Use ThreadPoolExecutor to run the processing in parallel
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = []
+        for cycle, filepath in enumerate(filepaths[1:], 1):
+            # Submit the process_cycle function to the executor
+            futures.append(executor.submit(
+                process_cycle, cycle, filepath, barrel_correction, plate_well,
+                flip_x, flip_y, edge_aligner, aligner_args, mosaic_args, 
+                ffp_paths, dfp_paths, mshape, quiet
+            ))
+        
+        # Gather the results
+        for future in concurrent.futures.as_completed(futures):
+            mosaics.append(future.result())
 
     # Disable reader caching to save memory during mosaicing and writing.
     edge_aligner.reader = edge_aligner.reader.reader
