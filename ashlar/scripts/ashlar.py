@@ -233,7 +233,33 @@ def main(argv=sys.argv):
         print_error(str(e))
         return 1
 
-
+def process_cycle(cycle, filepath, barrel_correction, plate_well, flip_x, flip_y, edge_aligner, aligner_args, mosaic_args, ffp_paths, dfp_paths, mshape, quiet):
+    """Function to process a single cycle."""
+    if not quiet:
+        print(f'Cycle {cycle}:')
+        print(f'    reading {filepath}')
+    
+    # Build the reader
+    reader = build_reader(filepath, barrel_correction, plate_well=plate_well)
+    
+    # Apply axis flip if needed
+    process_axis_flip(reader, flip_x, flip_y)
+    
+    # Perform the alignment
+    layer_aligner = reg.LayerAligner(reader, edge_aligner, **aligner_args)
+    layer_aligner.run()
+    
+    # Prepare final mosaic arguments
+    mosaic_args_final = mosaic_args.copy()
+    if ffp_paths:
+        mosaic_args_final['ffp_path'] = ffp_paths[cycle]
+    if dfp_paths:
+        mosaic_args_final['dfp_path'] = dfp_paths[cycle]
+    
+    # Create the Mosaic object
+    mosaic = reg.Mosaic(layer_aligner, mshape, **mosaic_args_final)
+    
+    return mosaic
 def process_single(
     filepaths, output_path_format, flip_x, flip_y, ffp_paths, dfp_paths,
     barrel_correction, aligner_args, mosaic_args, pyramid, quiet,
@@ -268,7 +294,6 @@ def process_single(
     if dfp_paths:
         mosaic_args_final['dfp_path'] = dfp_paths[0]
     mosaics.append(reg.Mosaic(edge_aligner, mshape, **mosaic_args_final))
-
 
     # Use ThreadPoolExecutor to run the processing in parallel
     with concurrent.futures.ThreadPoolExecutor() as executor:
